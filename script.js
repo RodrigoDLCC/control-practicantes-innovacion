@@ -5,6 +5,7 @@ const SCRIPT_URL =
   'https://script.google.com/macros/s/AKfycbx5VZ0HkBDLsgp8xuJod4ousnSlOViWQv0h67mb3_6ORpR9AO1druVo-C8edZjkWkNA/exec'
 
 const STORAGE_KEY_USER = 'IBEROTECA_TOTH_USER_SESSION'
+const STORAGE_KEY_SUPERVISORES = 'IBEROTECA_SUPERVISORES_CACHE'
 
 let appState = {
   tabActual: 'hoy',
@@ -19,6 +20,14 @@ let appState = {
 
 window.addEventListener('DOMContentLoaded', () => {
   iniciarReloj()
+
+  // Cargar lista desde caché local si existe para mostrar inmediatamente
+  const supervisoresCached = localStorage.getItem(STORAGE_KEY_SUPERVISORES)
+  if (supervisoresCached) {
+    try {
+      appState.supervisoresDisponibles = JSON.parse(supervisoresCached)
+    } catch (e) {}
+  }
   cargarListaSupervisores()
 
   document.addEventListener('click', (e) => {
@@ -141,8 +150,21 @@ async function cargarListaSupervisores() {
       { accion: 'obtener_supervisores' },
       false,
     )
-    if (res && res.supervisores)
+    if (res && res.supervisores && res.supervisores.length > 0) {
       appState.supervisoresDisponibles = res.supervisores
+      localStorage.setItem(
+        STORAGE_KEY_SUPERVISORES,
+        JSON.stringify(res.supervisores),
+      )
+      // Si el desplegable de login está abierto en pantalla, refrescarlo con la data real
+      const dropdown = document.getElementById('sugerencias-usuarios')
+      if (dropdown && dropdown.style.display === 'block') {
+        const inputVal = document.getElementById('login-usuario')
+          ? document.getElementById('login-usuario').value
+          : ''
+        filtrarSupervisores(inputVal)
+      }
+    }
   } catch (e) {
     console.warn('No se pudo precargar lista:', e)
   }
@@ -165,26 +187,14 @@ function filtrarSupervisores(texto) {
 
   let lista = appState.supervisoresDisponibles
   if (!lista || lista.length === 0) {
-    lista = [
-      {
-        usuario: 'Rodrigo',
-        nombre: 'Auxiliar Iberoteca',
-        rol: 'Auxiliar',
-        oficina: 'Innovación y Desarrollo',
-      },
-      {
-        usuario: 'Sol',
-        nombre: 'Ejecutivo Toth',
-        rol: 'Ejecutivo',
-        oficina: 'Innovación y Desarrollo',
-      },
-      {
-        usuario: 'David',
-        nombre: 'Ejecutivo Videos IA',
-        rol: 'Ejecutivo',
-        oficina: 'Innovación y Desarrollo',
-      },
-    ]
+    dropdown.innerHTML = `
+      <div style="padding: 14px 12px; font-size: 0.82rem; color: var(--slate-500); text-align: center; display: flex; align-items: center; justify-content: center; gap: 8px;">
+        <span class="sync-spinner"></span>
+        <span>Cargando lista de supervisores...</span>
+      </div>
+    `
+    dropdown.style.display = 'block'
+    return
   }
 
   const resultados = lista.filter(
@@ -194,7 +204,7 @@ function filtrarSupervisores(texto) {
   )
 
   if (resultados.length === 0) {
-    dropdown.innerHTML = `<div style="padding: 10px; font-size: 0.8rem; color: var(--slate-400); text-align: center;">No se encontraron supervisores.</div>`
+    dropdown.innerHTML = `<div style="padding: 12px; font-size: 0.82rem; color: var(--slate-400); text-align: center;">No se encontraron supervisores.</div>`
   } else {
     resultados.forEach((sup) => {
       const item = document.createElement('div')
@@ -449,7 +459,7 @@ function renderizarPanelHoy() {
           `
     } else if (tieneIncidencia) {
       statusRowHtml = `
-            <div class="card-today-status">
+            <div class="card-today-status incident">
               <div class="status-primary-line">
                 <span>Inasistencia / Permiso asentado</span>
               </div>
@@ -538,26 +548,43 @@ function renderizarPanelHoy() {
     let footerHtml = ''
     if (tieneSalida) {
       footerHtml = `
-            <button class="btn-link-action danger" onclick="solicitarAnulacion('${p.usuario}', '${p.salida.idRegistro || ''}', 'Salida de las ${p.salida.hora}', ${idx}, 'SALIDA')">
-              ↺ Deshacer salida
+            <button class="btn-footer-action danger" onclick="solicitarAnulacion('${p.usuario}', '${p.salida.idRegistro || ''}', 'Salida de las ${p.salida.hora}', ${idx}, 'SALIDA')" title="Revertir la salida de hoy">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3">
+                <polyline points="1 4 1 10 7 10"></polyline>
+                <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path>
+              </svg>
+              <span>Deshacer salida</span>
             </button>
           `
     } else if (tieneEntrada) {
       footerHtml = `
-            <button class="btn-link-action danger" onclick="solicitarAnulacion('${p.usuario}', '${p.entrada.idRegistro || ''}', 'Entrada de las ${p.entrada.hora}', ${idx}, 'ENTRADA')">
-              ↺ Deshacer entrada
+            <button class="btn-footer-action danger" onclick="solicitarAnulacion('${p.usuario}', '${p.entrada.idRegistro || ''}', 'Entrada de las ${p.entrada.hora}', ${idx}, 'ENTRADA')" title="Revertir la entrada de hoy">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3">
+                <polyline points="1 4 1 10 7 10"></polyline>
+                <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path>
+              </svg>
+              <span>Deshacer entrada</span>
             </button>
           `
     } else if (tieneIncidencia) {
       footerHtml = `
-            <button class="btn-link-action danger" onclick="solicitarAnulacion('${p.usuario}', '${p.incidencia.idRegistro || ''}', 'Inasistencia', ${idx}, 'INCIDENCIA')">
-              ↺ Anular inasistencia
+            <button class="btn-footer-action danger" onclick="solicitarAnulacion('${p.usuario}', '${p.incidencia.idRegistro || ''}', 'Inasistencia', ${idx}, 'INCIDENCIA')" title="Eliminar registro de inasistencia">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3">
+                <line x1="18" y1="6" x2="6" y2="18"></line>
+                <line x1="6" y1="6" x2="18" y2="18"></line>
+              </svg>
+              <span>Anular inasistencia</span>
             </button>
           `
     } else {
       footerHtml = `
-            <button class="btn-link-action" onclick="abrirModalIncidencia('${p.usuario}', ${idx})">
-              ! Reportar ausencia o permiso
+            <button class="btn-footer-action secondary" onclick="abrirModalIncidencia('${p.usuario}', ${idx})" title="Registrar permiso o inasistencia">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3">
+                <circle cx="12" cy="12" r="10"></circle>
+                <line x1="12" y1="8" x2="12" y2="12"></line>
+                <line x1="12" y1="16" x2="12.01" y2="16"></line>
+              </svg>
+              <span>Reportar ausencia o permiso</span>
             </button>
           `
     }
